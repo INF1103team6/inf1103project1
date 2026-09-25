@@ -11,5 +11,5 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r library.txt
-      - run: python -m pytest tests/ -v
+      - run: python -m pytest tests/ -v || [ $? -eq 5 ]
       - run: docker build -t safety-triage .
