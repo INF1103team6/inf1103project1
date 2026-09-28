@@ -122,3 +122,107 @@ def extract_hazard_context_flags(description):
         result = dict(defaults)
         result["context_flags_error"] = f"AI extraction failed: {error}"
         return result
+
+
+def get_time_of_day(timestamp):
+    return "day"
+
+
+def classify_lighting_condition(time_of_day, condition):
+    return "daylight"
+
+
+def is_weather_relevant(record):
+    return False
+
+
+def call_weather_api(location):
+    return None
+
+
+def validate_weather_response(response):
+    return False
+
+
+def find_similar_incidents(record):
+    return []
+
+
+def search_web_for_similar_incidents(record):
+    return {"industry_context": None, "incidents": []}
+
+
+def review_step(record):
+    return {
+        "monsoon_season": "inter_monsoon",
+        "review_likely_causes": None,
+        "review_prevention_actions": None,
+        "review_error": None,
+    }
+
+
+# Lennart
+def enrich_record(record):
+    enriched = dict(record)
+    weather_relevant = is_weather_relevant(record)
+
+    if weather_relevant:
+        raw_weather = call_weather_api(record.get("location", ""))
+        if raw_weather is not None and validate_weather_response(raw_weather):
+            enriched["weather_available"] = True
+            enriched["condition"] = raw_weather["condition"]
+            enriched["temperature_c"] = raw_weather["temperature_c"]
+            enriched["humidity_pct"] = raw_weather["humidity_pct"]
+            enriched["enrichment_error"] = None
+        else:
+            enriched["weather_available"] = False
+            enriched["condition"] = None
+            enriched["temperature_c"] = None
+            enriched["humidity_pct"] = None
+            enriched["enrichment_error"] = "Weather data unavailable or invalid"
+    else:
+        enriched["weather_available"] = False
+        enriched["condition"] = None
+        enriched["temperature_c"] = None
+        enriched["humidity_pct"] = None
+        enriched["enrichment_error"] = None
+
+    time_of_day = get_time_of_day(record.get("timestamp"))
+    enriched["time_of_day"] = time_of_day
+    enriched["lighting_condition"] = classify_lighting_condition(time_of_day, enriched["condition"])
+
+    flags = extract_hazard_context_flags(record.get("description", ""))
+    enriched["hazard_category"] = flags["hazard_category"]
+    enriched["injury_severity"] = flags["injury_severity"]
+    enriched["working_at_height"] = flags["working_at_height"]
+    enriched["height_estimate_m"] = flags["height_estimate_m"]
+    enriched["heavy_machinery_present"] = flags["heavy_machinery_present"]
+    enriched["ppe_status"] = flags["ppe_status"]
+    enriched["context_flags_error"] = flags["context_flags_error"]
+
+    if not weather_relevant:
+        enriched["similar_incidents_checked"] = True
+        try:
+            enriched["similar_incidents"] = find_similar_incidents(enriched)
+            enriched["similar_incidents_error"] = None
+        except Exception as error:
+            enriched["similar_incidents"] = None
+            enriched["similar_incidents_error"] = str(error)
+    else:
+        enriched["similar_incidents_checked"] = False
+        enriched["similar_incidents"] = None
+        enriched["similar_incidents_error"] = None
+
+    try:
+        web = search_web_for_similar_incidents(enriched)
+        enriched["web_industry_context"] = web["industry_context"]
+        enriched["web_incidents"] = web["incidents"]
+        enriched["web_search_error"] = None
+    except Exception as error:
+        enriched["web_industry_context"] = None
+        enriched["web_incidents"] = None
+        enriched["web_search_error"] = str(error)
+
+    enriched.update(review_step(enriched))
+
+    return enriched
