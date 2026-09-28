@@ -1,3 +1,5 @@
+import json
+
 from dotenv import load_dotenv
 from google import genai
 
@@ -16,3 +18,16 @@ def _get_gemini_client():
         return genai.Client(http_options={"retry_options": {"attempts": 1}, "timeout": 25000})
     except Exception:
         return None
+
+
+# Lennart
+def _parse_json_safe(text):
+    """Best-effort JSON parsing: handles plain JSON and JSON wrapped in
+    markdown code fences, which some models add even when asked for a
+    JSON mime type."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+    return json.loads(cleaned)
