@@ -1,3 +1,15 @@
+import os
+import json
+from datetime import datetime
+
+import requests
+from dotenv import load_dotenv
+from google import genai
+import INF1103_Project_Folders.inf1103secret.data_manager as data_manager
+
+load_dotenv()
+
+
 def is_weather_relevant(record):
     """Checks hazard keywords in the description to decide if weather
     context matters. Simple keyword match — skips the API call otherwise."""
