@@ -95,6 +95,12 @@ def validate_weather_response(response):
     if not isinstance(response, dict):
         return False
     condition = response.get("condition")
+    temperature_c = response.get("temperature_c")
+    humidity_pct = response.get("humidity_pct")
     if condition not in ("rain", "clear"):
+        return False
+    if not isinstance(temperature_c, (int, float)) or not (-10 <= temperature_c <= 50):
+        return False
+    if not isinstance(humidity_pct, (int, float)) or not (0 <= humidity_pct <= 100):
         return False
     return True
