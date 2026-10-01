@@ -1,4 +1,12 @@
 def assess_severity(record, weather_data=None, history=None):
+    """Judges hazard_type, severity_estimate (1-5), and
+    likelihood_recurrence from the AI-extracted facts (hazard_category,
+    injury_severity, working_at_height, heavy_machinery_present,
+    ppe_status, similar_incidents), plus lighting, weather and location
+    history. There is no keyword fallback: if the AI extraction failed,
+    the incident is not judged and assessment_error is set, which
+    decide_outcome() routes to pending_review. Simple additive scoring —
+    intentionally not complex."""
     if weather_data is None:
         weather_data = {}
     if history is None:
@@ -25,6 +33,10 @@ def assess_severity(record, weather_data=None, history=None):
     poor_light = record.get("lighting_condition") in ("dark", "low_light")
     similar = record.get("similar_incidents") or []
     similar_escalated = any(item.get("outcome") in _ESCALATED_OUTCOMES for item in similar)
+
+    # --- severity_estimate: simple additive score, capped 1-5 ---
+    # Each factor is recorded in `reasons`, in plain English, so the
+    # reporter can see why. Every incident starts at 1.
     severity = 1
     reasons = []
     if injury_severity == "fatal":
@@ -35,6 +47,7 @@ def assess_severity(record, weather_data=None, history=None):
         if injury_points:
             severity += injury_points
             reasons.append(f"{injury_severity.capitalize()} injury (+{injury_points})")
+        # Reporter said someone was hurt but the description didn't say how badly.
         if record.get("injury") and injury_severity in ("none", "unspecified"):
             severity += 1
             reasons.append("Someone was hurt, but how badly wasn't described (+1)")
@@ -63,6 +76,8 @@ def assess_severity(record, weather_data=None, history=None):
         severity += 1
         reasons.append("A similar past incident on our sites was escalated (+1)")
     severity = max(1, min(severity, 5))
+
+    # --- likelihood_recurrence: simple tiered logic ---
     recurrence = "low"
     if poor_light or len(history) >= 1:
         recurrence = "medium"
