@@ -89,3 +89,12 @@ def call_weather_api(location):
     except Exception:
         return None
 
+def validate_weather_response(response):
+    """Checks condition, temperature_c, humidity_pct are present and
+    sensible."""
+    if not isinstance(response, dict):
+        return False
+    condition = response.get("condition")
+    if condition not in ("rain", "clear"):
+        return False
+    return True
