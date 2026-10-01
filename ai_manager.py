@@ -61,3 +61,31 @@ def is_weather_relevant(record):
     context matters. Simple keyword match — skips the API call otherwise."""
     description = record.get("description", "").lower()
     return any(keyword in description for keyword in _WEATHER_KEYWORDS)
+
+
+def call_weather_api(location):
+    """Calls Open-Meteo (free, no key needed) for current Singapore weather.
+    Returns a dict or None on failure — never raises uncaught."""
+    try:
+        response = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": _SG_LATITUDE,
+                "longitude": _SG_LONGITUDE,
+                "current": "temperature_2m,relative_humidity_2m,precipitation",
+                "timezone": "Asia/Singapore",
+            },
+            timeout=8,
+        )
+        response.raise_for_status()
+        data = response.json()
+        current = data.get("current", {})
+        precipitation = current.get("precipitation", 0) or 0
+        return {
+            "condition": "rain" if precipitation > 0 else "clear",
+            "temperature_c": current.get("temperature_2m"),
+            "humidity_pct": current.get("relative_humidity_2m"),
+        }
+    except Exception:
+        return None
+
