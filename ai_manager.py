@@ -104,3 +104,13 @@ def validate_weather_response(response):
     if not isinstance(humidity_pct, (int, float)) or not (0 <= humidity_pct <= 100):
         return False
     return True
+
+def classify_lighting_condition(time_of_day, condition):
+    """One step darker than time_of_day if weather cuts visibility. Reads
+    condition from Darrel's own weather response. Never returns None."""
+    levels = ["daylight", "low_light", "dark"]
+    base = {"day": 0, "dusk_dawn": 1, "night": 2}.get(time_of_day, 0)
+    if condition == "rain":
+        base += 1
+    base = min(base, len(levels) - 1)
+    return levels[base]
