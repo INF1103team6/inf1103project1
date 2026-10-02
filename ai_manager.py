@@ -289,9 +289,6 @@ def classify_lighting_condition(time_of_day, condition):
     base = min(base, len(levels) - 1)
     return levels[base]
 
-def find_similar_incidents(record):
-    return []
-
 
 def _extract_json_object(text):
     """Pulls the outermost JSON object out of a free-text reply.
