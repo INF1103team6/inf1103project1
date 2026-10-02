@@ -42,8 +42,8 @@ docker run -it --env-file .env inf1103project1
 Every merge to `main` publishes a new image to GitHub Container Registry.
 
 ```bash
-docker pull ghcr.io/inf1103team6/inf1103project1:latest
-docker run -it --env-file .env ghcr.io/inf1103team6/inf1103project1:latest
+docker pull ghcr.io/p11-team6-inf1103/inf1103-p-11team6:latest
+docker run -it --env-file .env ghcr.io/p11-team6-inf1103/inf1103-p-11team6:latest
 ```
 
 ## Contributing
