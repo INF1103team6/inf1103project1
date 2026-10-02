@@ -34,21 +34,63 @@ def _parse_json_safe(text):
     return json.loads(cleaned)
 
 
-def _call_gemini(client, prompt):
-    response = client.models.generate_content(
-        model="gemini-flash-lite-latest",
-        contents=prompt,
-    )
-    return response.text
+def _call_gemini(client, prompt, schema):
+    """Sends one JSON-schema request, trying each model in GEMINI_MODELS
+    until one answers. Returns the reply text. Raises the last error if
+    every model fails."""
+    last_error = None
+    for model in GEMINI_MODELS:
+        try:
+            interaction = client.interactions.create(
+                model=model,
+                input=prompt,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": schema,
+                },
+                # Fixed seed so the same input gives the same answer as
+                # far as the model allows.
+                generation_config={"seed": AI_SEED},
+            )
+            return interaction.output_text
+        except Exception as error:
+            last_error = error
+    raise RuntimeError(f"All Gemini models failed; last error: {last_error}")
 
 
-def _validate_schema(data, required_fields):
-    if not isinstance(data, dict):
-        return False
-    for field in required_fields:
-        if field not in data:
-            return False
-    return True
+
+def _validate_schema(data, schema, path="response"):
+    """Checks an AI reply against the JSON schema we asked for, before any
+    of it is used. Supports the parts of JSON Schema this module uses:
+    type (single or list), enum, properties, required, items. Raises
+    ValueError naming the first field that doesn't match."""
+    type_checks = {
+        "object": lambda v: isinstance(v, dict),
+        "array": lambda v: isinstance(v, list),
+        "string": lambda v: isinstance(v, str),
+        "boolean": lambda v: isinstance(v, bool),
+        "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+        "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+        "null": lambda v: v is None,
+    }
+    allowed = schema.get("type")
+    if allowed is not None:
+        allowed = allowed if isinstance(allowed, list) else [allowed]
+        if not any(type_checks[t](data) for t in allowed):
+            raise ValueError(f"{path}: expected {' or '.join(allowed)}, got {type(data).__name__}")
+    if "enum" in schema and data not in schema["enum"]:
+        raise ValueError(f"{path}: {data!r} is not one of {schema['enum']}")
+    if isinstance(data, dict):
+        for key in schema.get("required", []):
+            if key not in data:
+                raise ValueError(f"{path}: missing required field '{key}'")
+        for key, sub_schema in schema.get("properties", {}).items():
+            if key in data:
+                _validate_schema(data[key], sub_schema, f"{path}.{key}")
+    if isinstance(data, list) and "items" in schema:
+        for index, item in enumerate(data):
+            _validate_schema(item, schema["items"], f"{path}[{index}]")
 
 
 _SG_LATITUDE = 1.3521
@@ -62,6 +104,12 @@ INJURY_SEVERITIES = ("none", "minor", "serious", "fatal", "unspecified")
 
 # Lennart
 def extract_hazard_context_flags(description):
+    """Calls Gemini (GEMINI_MODELS, with fallback) to extract hazard_category,
+    injury_severity, working_at_height, height_estimate_m,
+    heavy_machinery_present, and ppe_status from the
+    free-text description as structured JSON. Validates the schema before
+    use. Never raises — falls back to safe defaults and sets
+    context_flags_error on any failure."""
     defaults = {
         "hazard_category": None,
         "injury_severity": "unspecified",
@@ -75,37 +123,61 @@ def extract_hazard_context_flags(description):
     client = _get_gemini_client()
     if client is None:
         result = dict(defaults)
-        result["context_flags_error"] = "Gemini client unavailable"
+        result["context_flags_error"] = "Gemini client unavailable (check GEMINI_API_KEY)"
         return result
 
-    required_fields = [
-        "hazard_category",
-        "injury_severity",
-        "working_at_height",
-        "heavy_machinery_present",
-        "ppe_status",
-    ]
+    schema = {
+        "type": "object",
+        "properties": {
+            "hazard_category": {"type": "string", "enum": list(HAZARD_CATEGORIES)},
+            "injury_severity": {"type": "string", "enum": list(INJURY_SEVERITIES)},
+            "working_at_height": {"type": "boolean"},
+            "height_estimate_m": {"type": ["number", "null"]},
+            "heavy_machinery_present": {"type": "boolean"},
+            "ppe_status": {
+                "type": "string",
+                "enum": ["worn", "not_worn", "unspecified"],
+            },
+        },
+        "required": [
+            "hazard_category", "injury_severity", "working_at_height",
+            "heavy_machinery_present", "ppe_status",
+        ],
+    }
 
     prompt = (
-        "Read this workplace safety incident description and reply with "
-        "only a JSON object, no other text.\n\n"
+        "Read this workplace safety incident description from a Singapore "
+        "construction site and extract hazard-context flags as JSON.\n\n"
         f"Description: \"{description}\"\n\n"
-        f"hazard_category: one of {list(HAZARD_CATEGORIES)}.\n"
-        f"injury_severity: one of {list(INJURY_SEVERITIES)}.\n"
-        "working_at_height: true only if someone was working on or fell "
-        "from an elevated position.\n"
-        "height_estimate_m: a number if a height is stated, otherwise null.\n"
+        "hazard_category: the kind of hazard described. 'fall' is a slip or "
+        "trip at ground level; 'fall_from_height' is any fall from an "
+        "elevated position; 'struck_by_machinery' is being hit by or caught "
+        "in machinery or falling objects; 'vehicular' is a vehicle movement "
+        "or collision; 'low_visibility' is a hazard caused mainly by poor "
+        "lighting; otherwise 'electrical', 'chemical', or 'other'.\n"
+        "injury_severity: 'none' if explicitly no injury, 'minor' for first "
+        "aid only, 'serious' for hospital treatment, fractures or lost work "
+        "time, 'fatal' if someone died, otherwise 'unspecified'.\n"
+        "working_at_height: true only if someone was working on or fell from "
+        "an elevated position (scaffolding, roof, ladder, edge, crane cab, "
+        "mezzanine). Being near scaffolding at ground level is false.\n"
+        "height_estimate_m: a number only if a specific height is stated "
+        "(e.g. '10 metres'), otherwise null.\n"
         "heavy_machinery_present: true if a crane, excavator, forklift, "
-        "generator or conveyor is mentioned.\n"
-        "ppe_status: one of 'worn', 'not_worn', 'unspecified'."
+        "generator, or conveyor is mentioned.\n"
+        "ppe_status: 'worn' if PPE/harness/hi-vis is explicitly stated as "
+        "worn, 'not_worn' if explicitly stated as missing/not worn, "
+        "otherwise 'unspecified'."
     )
 
     try:
-        parsed = _parse_json_safe(_call_gemini(client, prompt))
-        if not _validate_schema(parsed, required_fields):
-            raise ValueError("Gemini reply was missing required fields")
-        if parsed["hazard_category"] not in HAZARD_CATEGORIES:
-            raise ValueError("invalid hazard_category")
+        parsed = _parse_json_safe(_call_gemini(client, prompt, schema))
+        _validate_schema(parsed, schema)
+
+        # hazard_category is the one field with no safe default — without
+        # it logic_manager cannot judge the incident at all.
+        if parsed.get("hazard_category") not in HAZARD_CATEGORIES:
+            raise ValueError(f"invalid hazard_category: {parsed.get('hazard_category')!r}")
 
         result = dict(defaults)
         result["hazard_category"] = parsed["hazard_category"]
