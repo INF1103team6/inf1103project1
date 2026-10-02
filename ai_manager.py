@@ -91,24 +91,6 @@ def classify_lighting_condition(time_of_day, condition):
     base = min(base, len(levels) - 1)
     return levels[base]
 
-def get_monsoon_season(timestamp):
-    """Pure function. Returns Singapore's monsoon season for the incident
-    date, using the Meteorological Service Singapore calendar:
-    'northeast_monsoon' (Dec to early Mar), 'inter_monsoon' (late Mar to
-    May, Oct to Nov), 'southwest_monsoon' (Jun to Sep). Context only —
-    never used to score."""
-    try:
-        when = datetime.fromisoformat(timestamp)
-    except (TypeError, ValueError):
-        when = datetime.now()
-    month = when.month
-    if month in (12, 1, 2) or (month == 3 and when.day <= 15):
-        return "northeast_monsoon"
-    if 6 <= month <= 9:
-        return "southwest_monsoon"
-    return "inter_monsoon"
-
-
 def search_web_for_similar_incidents(record):
     """Runs for every incident. Asks Groq (GPT-OSS + browser_search) to
     search the internet for (a) whether this kind of hazard is a known
