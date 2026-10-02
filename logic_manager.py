@@ -37,7 +37,22 @@ def is_high_severity(record):
     return severity >= 4 or (injury and recurrence == "high")
 
 def is_systemic_risk(record, history):
-    """Rule 2 (recurring likelihood): same location flagged 3+ times in
-    the last 30 days. `history` is already pre-filtered to that window by
-    data_manager.query_by_location()."""
-    return len(history) >= 3
+    """Rule 2 (recurrence): if the location has had >= 3 incidents in the
+    last 30 days, and the current incident is not a near-miss, then
+    systemic escalation."""
+    if record.get("hazard_type") == "unassessed":
+        return False
+    recent_incidents = [
+        r for r in history
+        if r.get("timestamp") and (record.get("timestamp") - r["timestamp"]).days <= 30
+    ]
+    return len(recent_incidents) >= 3 and record.get("severity_estimate", 0) > 1
+
+def decide_outcome(record, history):
+    """Decides the outcome based on the severity and recurrence rules."""
+    if is_high_severity(record):
+        return "stop_work_review"
+    elif is_systemic_risk(record, history):
+        return "systemic_escalation"
+    else:
+        return "log_only"
